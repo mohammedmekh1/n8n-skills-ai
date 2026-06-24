@@ -1,0 +1,331 @@
+{
+  "name": "HajjUmrah_M3_SMS_Campaign_Manager.json",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getRows",
+        "sheetId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "marketing_leads"
+        },
+        "options": {
+          "range": "A1:Z1000"
+        }
+      },
+      "id": "google-sheets-fetch-leads",
+      "name": "Google Sheets - Fetch Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [450, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.priority }}",
+              "value2": "high"
+            }
+          ],
+          "dateTime": [
+            {
+              "value1": "={{ $json.followup_date }}",
+              "value2": "={{ $now.toISODate() }}"
+            }
+          ],
+          "boolean": []
+        }
+      },
+      "id": "filter-high-priority",
+      "name": "Filter High Priority Today",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.twilio.com/2010-04-01/Accounts/{{TWILIO_ACCOUNT_SID}}/Messages.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "twilioApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "To",
+              "value": "={{ $json.phone.startsWith('+') ? $json.phone : '+966' + $json.phone.replace(/^0/, '') }}"
+            },
+            {
+              "name": "From",
+              "value": "{{TWILIO_PHONE_NUMBER}}"
+            },
+            {
+              "name": "Body",
+              "value": "={{ `🕋 ${$json.name} الكريم/ة،\n\nنسعد بإبلاغكم أن مستشارينا متاحون الآن لتقديم استشارة مجانية حول خدمة ${$json.service_interest || 'الحج والعمرة بالإنابة'}.\n\nلدينا عروض خاصة لهذا الأسبوع!\n\nللتواصل: +966-XXX-XXXXXXX\nأو زيارة: hajjumrah.sa` }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "twilio-sms-send",
+      "name": "Twilio - Send SMS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 300],
+      "credentials": {
+        "twilioApi": {
+          "id": "",
+          "name": "Twilio API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{TELEGRAM_BOT_TOKEN}}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "{{TELEGRAM_CHAT_ID}}"
+            },
+            {
+              "name": "text",
+              "value": "📱 *تم إرسال SMS*\n\n📛 العميل: {{ $json.name }}\n📞 الهاتف: {{ $json.phone }}\n🎯 الخدمة: {{ $json.service_interest }}\n💰 الميزانية: {{ $json.budget_range }}\n⭐ الأولوية: {{ $json.priority }}\n\n#SMS #حملة_تسويقية"
+            },
+            {
+              "name": "parse_mode",
+              "value": "Markdown"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "telegram-log-sms",
+      "name": "Telegram - Log SMS Sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "sheetId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "marketing_leads"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {
+          "valueInputMode": "expression"
+        }
+      },
+      "id": "update-lead-status",
+      "name": "Google Sheets - Update Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1250, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-batches-low",
+      "name": "Split In Batches (Low Priority)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [650, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.twilio.com/2010-04-01/Accounts/{{TWILIO_ACCOUNT_SID}}/Messages.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "twilioApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "To",
+              "value": "={{ $json.phone.startsWith('+') ? $json.phone : '+966' + $json.phone.replace(/^0/, '') }}"
+            },
+            {
+              "name": "From",
+              "value": "{{TWILIO_PHONE_NUMBER}}"
+            },
+            {
+              "name": "Body",
+              "value": "={{ `🕋 عرض خاص للحج والعمرة بالإنابة\n\n${$json.name} الكريم/ة،\n\nاحجز الآن واحصل على خصم 15% للعمرة بالإنابة عن المتوفي أو المريض.\n\nالعرض ساري حتى نهاية الأسبوع.\n\nللتفاصيل: hajjumrah.sa/offers` }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "twilio-sms-promo",
+      "name": "Twilio - Send Promo SMS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 500],
+      "credentials": {
+        "twilioApi": {
+          "id": "",
+          "name": "Twilio API"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Fetch Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Fetch Leads": {
+      "main": [
+        [
+          {
+            "node": "Filter High Priority Today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter High Priority Today": {
+      "main": [
+        [
+          {
+            "node": "Twilio - Send SMS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Split In Batches (Low Priority)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio - Send SMS": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Log SMS Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Log SMS Sent": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Update Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches (Low Priority)": {
+      "main": [
+        [
+          {
+            "node": "Twilio - Send Promo SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio - Send Promo SMS": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches (Low Priority)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "",
+  "meta": {
+    "instanceId": ""
+  },
+  "tags": [
+    {
+      "name": "Marketing",
+      "color": "blue"
+    },
+    {
+      "name": "SMS Campaign",
+      "color": "yellow"
+    },
+    {
+      "name": "Hajj-Umrah",
+      "color": "purple"
+    }
+  ]
+}

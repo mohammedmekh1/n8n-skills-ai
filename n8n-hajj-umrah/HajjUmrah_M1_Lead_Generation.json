@@ -1,0 +1,247 @@
+{
+  "name": "HajjUmrah_M1_Lead_Generation.json",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "marketing-lead-capture",
+        "options": {}
+      },
+      "id": "webhook-lead-capture",
+      "name": "Webhook Lead Capture",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "marketing_leads"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {
+          "valueInputMode": "expression"
+        }
+      },
+      "id": "google-sheets-lead-save",
+      "name": "Google Sheets - Save Lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [650, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{TELEGRAM_BOT_TOKEN}}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "{{TELEGRAM_CHAT_ID}}"
+            },
+            {
+              "name": "text",
+              "value": "🎯 *عميل محتمل جديد*\n\n📛 الاسم: {{ $json.name }}\n📞 الهاتف: {{ $json.phone }}\n✉️ البريد: {{ $json.email }}\n🎯 الخدمة المطلوبة: {{ $json.service_interest }}\n💰 الميزانية: {{ $json.budget_range }}\n📍 المدينة: {{ $json.city }}\n📅 وقت التواصل المفضل: {{ $json.preferred_contact_time }}\n\n#عميل_جديد #حج_عمرة"
+            },
+            {
+              "name": "parse_mode",
+              "value": "Markdown"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "telegram-notify-team",
+      "name": "Telegram - Notify Team",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.whatsapp.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsappBusinessCloudApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $json.phone }}\",\n  \"type\": \"template\",\n  \"template\": {\n    \"name\": \"welcome_hajj_umrah\",\n    \"language\": {\n      \"code\": \"ar\"\n    },\n    \"components\": [\n      {\n        \"type\": \"body\",\n        \"parameters\": [\n          {\n            \"type\": \"text\",\n            \"text\": \"{{ $json.name }}\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+        "options": {}
+      },
+      "id": "whatsapp-welcome",
+      "name": "WhatsApp - Welcome Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1050, 300],
+      "credentials": {
+        "whatsappBusinessCloudApi": {
+          "id": "",
+          "name": "WhatsApp Business Cloud API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "noreply@hajjumrah.sa",
+        "toEmail": "={{ $json.email }}",
+        "subject": "شكراً لاهتمامك بخدمات الحج والعمرة بالإنابة - {{ $json.service_interest }}",
+        "emailType": "html",
+        "message": "<!DOCTYPE html><html><head><style>body{font-family:Arial,sans-serif;direction:rtl;text-align:right;background:#f9f9f9;padding:20px}.container{max-width:600px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1)}.header{background:linear-gradient(135deg,#1e3a8a,#059669);color:#fff;padding:30px;text-align:center}.header h1{margin:0;font-size:28px}.kaaba-icon{font-size:48px;display:block;margin-bottom:10px}.content{padding:30px;line-height:1.8;color:#374151}.cta-button{display:inline-block;background:#059669;color:#fff;padding:15px 30px;text-decoration:none;border-radius:8px;margin:20px 0;font-weight:bold}.footer{background:#f3f4f6;padding:20px;text-align:center;font-size:14px;color:#6b7280}</style></head><body><div class='container'><div class='header'><span class='kaaba-icon'>🕋</span><h1>شكراً لثقتكم</h1><p>نسأل الله أن يتقبل منكم صالح الأعمال</p></div><div class='content'><p>وعليكم السلام ورحمة الله وبركاته,</p><p>نشكر لكم اهتمامكم بخدمات <strong>الحج والعمرة بالإنابة</strong> عن المتوفي والمريض والعاجز.</p><p>لقد تلقينا طلبكم للاستفسار عن خدمة: <strong>{{ $json.service_interest }}</strong></p><p>سيقوم أحد مستشارينا المختصين بالتواصل معكم خلال 24 ساعة لتقديم الاستشارة المجانية وشرح التفاصيل.</p><a href='https://hajjumrah.sa/services' class='cta-button'>تصفح خدماتنا</a><p><strong>خدماتنا تشمل:</strong></p><ul><li>✅ عمرة بالإنابة عن المتوفي</li><li>✅ حج بالإنابة عن المريض</li><li>✅ توثيق شرعي كامل</li><li>✅ تقارير فيديو وصور</li><li>✅ شهادات إتمام معتمدة</li></ul><p>للاستفسار المباشر:<br>📞 +966-XXX-XXXXXXX<br>✉️ support@hajjumrah.sa</p></div><div class='footer'><p>© 2025 Hajj & Umrah Proxy Services. جميع الحقوق محفوظة.</p><p>رخصة وزارة الحج والعمرة رقم: XXXXX</p></div></div></body></html>",
+        "options": {}
+      },
+      "id": "email-autoresponder",
+      "name": "Gmail - Autoresponder",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1250, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "lead_score",
+              "name": "lead_score",
+              "value": "={{ ($json.budget_range === 'vip' ? 40 : $json.budget_range === 'premium' ? 30 : $json.budget_range === 'standard' ? 20 : 10) + ($json.service_interest.includes('hajj') ? 20 : 10) + ($json.urgency === 'urgent' ? 25 : 10) }}",
+              "type": "number"
+            },
+            {
+              "id": "priority",
+              "name": "priority",
+              "value": "={{ $json.lead_score >= 70 ? 'high' : $json.lead_score >= 40 ? 'medium' : 'low' }}",
+              "type": "string"
+            },
+            {
+              "id": "followup_date",
+              "name": "followup_date",
+              "value": "={{ new Date(Date.now() + ($json.priority === 'high' ? 1 : $json.priority === 'medium' ? 3 : 7) * 24 * 60 * 60 * 1000).toISOString().split('T')[0] }}",
+              "type": "string"
+            },
+            {
+              "id": "lead_source",
+              "name": "lead_source",
+              "value": "={{ $json.source || 'website' }}",
+              "type": "string"
+            },
+            {
+              "id": "created_at",
+              "name": "created_at",
+              "value": "={{ new Date().toISOString() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "lead-scoring",
+      "name": "Lead Scoring",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [450, 300]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Lead Capture": {
+      "main": [
+        [
+          {
+            "node": "Lead Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Scoring": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Save Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Save Lead": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Notify Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Notify Team": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp - Welcome Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp - Welcome Message": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Autoresponder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "",
+  "meta": {
+    "instanceId": ""
+  },
+  "tags": [
+    {
+      "name": "Marketing",
+      "color": "blue"
+    },
+    {
+      "name": "Lead Generation",
+      "color": "green"
+    },
+    {
+      "name": "Hajj-Umrah",
+      "color": "purple"
+    }
+  ]
+}
