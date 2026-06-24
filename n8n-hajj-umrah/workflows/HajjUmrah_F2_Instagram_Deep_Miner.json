@@ -1,0 +1,182 @@
+{
+  "name": "HajjUmrah F2: Instagram Deep Miner",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "trigger-schedule",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "notes": "يعمل كل 6 ساعات لمسح إنستغرام"
+    },
+    {
+      "parameters": {
+        "jsCode": "// مهارة: javascript-coding\n// توليد قائمة شاملة من الهاشتاجات المستهدفة\nconst baseHashtags = [\n  // أساسية\n  '#عمرة_البدل', '#حج_البدل', '#نيابة_عن_الميت', '#عمرة_عن_الميت',\n  '#عمرة_للمريض', '#حج_للمريض', '#بدل_عمرة', '#بدل_حج',\n  // موسمية\n  '#رمضان_قادم', '#عمرة_رمضان', '#حج_هذا_العام', '#موسم_الحج',\n  #أشتاق_للبيت', '#البيت_العتيق', '#مكة_المكرمة', '#المدينة_المنورة',\n  // عالمية (عربي)\n  '#عمرة_امريكا', '#عمرة_كندا', '#عمرة_بريطانيا', '#عمرة_فرنسا',\n  '#عمرة_اندونيسيا', '#عمرة_ماليزيا', '#عمرة_باكستان', '#عمرة_الهند',\n  '#عمرة_تركيا', '#عمرة_الجزائر', '#عمرة_المغرب', '#عمرة_مصر',\n  // إنجليزي\n  '#UmrahProxy', '#HajjProxy', '#UmrahForDeceased', '#HajjForParents',\n  '#UmrahOnBehalf', '#IslamicServices', '#MuslimCommunity',\n  #UrduHashtags: '#umarah_badal', '#hajj_badal', '#waledain_ke_liye',\n  #Indonesian: '#umrahbadal', '#hajibadal', '#almarhum'\n];\n\n// إنشاء مجموعات مركبة\nconst combinations = [];\nbaseHashtags.forEach(tag => {\n  combinations.push({ hashtags: [tag], focus: 'single' });\n});\n\n// مجموعات ثنائية لزيادة الدقة\nfor (let i = 0; i < baseHashtags.length; i++) {\n  for (let j = i + 1; j < baseHashtags.length; j++) {\n    if (Math.random() > 0.7) { // عشوائية لتقليل العدد\n      combinations.push({ \n        hashtags: [baseHashtags[i], baseHashtags[j]], \n        focus: 'combo' \n      });\n    }\n  }\n}\n\nreturn combinations.slice(0, 50).map(c => ({ json: c }));"
+      },
+      "id": "node-hashtag-gen",
+      "name": "Hashtag Generator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "apify-instagram-scraper",
+        "options": {}
+      },
+      "id": "node-apify-call",
+      "name": "Call Apify Instagram Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 300],
+      "notes": "استدعاء Apify لمسح الهاشتاجات والمواقع الجغرافية"
+    },
+    {
+      "parameters": {
+        "jsCode": "// مهارة: data-processing\n// استخراج وتحليل التعليقات للكشف عن النوايا\nconst items = $input.all();\nconst leads = [];\n\nfor (const item of items) {\n  const post = item.json;\n  const comments = post.comments || [];\n  \n  // تحليل كل تعليق\n  comments.forEach(comment => {\n    const text = comment.text.toLowerCase();\n    const keywords = ['كيف', 'سعر', 'تسجيل', 'حجز', 'متوفي', 'مريض', 'والدي', 'والدتي', 'how much', 'register', 'book', 'deceased', 'mother', 'father'];\n    \n    if (keywords.some(k => text.includes(k))) {\n      leads.push({\n        json: {\n          platform: 'instagram',\n          post_url: post.url,\n          post_hashtags: post.hashtags,\n          author: comment.username,\n          comment_text: comment.text,\n          timestamp: comment.timestamp,\n          context: 'comment_intent',\n          location_tag: post.location || ''\n        }\n      });\n    }\n  });\n  \n  // تحليل المنشور نفسه أيضاً\n  const caption = post.caption || '';\n  if (caption.toLowerCase().includes('أبحث') || caption.toLowerCase().includes('أريد') || caption.includes('looking for')) {\n    leads.push({\n      json: {\n        platform: 'instagram',\n        post_url: post.url,\n        author: post.author,\n        comment_text: caption,\n        timestamp: post.timestamp,\n        context: 'post_intent',\n        location_tag: post.location || ''\n      }\n    });\n  }\n}\n\nreturn leads;"
+      },
+      "id": "node-comment-analyzer",
+      "name": "Comment & Intent Analyzer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "أنت محلل متخصص في إنستغرام لخدمات الحج والعمرة.\nحلل النص التالي وحدد:\n1. هل هو استفسار حقيقي عن خدمة بدل؟\n2. ما هي اللغة المستخدمة؟\n3. ما هو مستوى الجدية؟\n4. هل ذكر حالة خاصة (وفاة، مرض)؟\n\nأخرج JSON فقط:\n{\"is_lead\": boolean, \"confidence\": number, \"language\": string, \"intent_type\": string}"
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.comment_text }}"
+            }
+          ]
+        },
+        "options": {
+          "responseFormat": "json_object"
+        }
+      },
+      "id": "node-ig-ai",
+      "name": "Instagram AI Validator",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "range": "IG_Leads!A:Z",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "platform": "platform",
+            "author": "author",
+            "content": "comment_text",
+            "url": "post_url",
+            "is_lead": "json.is_lead",
+            "confidence": "json.confidence",
+            "timestamp": "processed_at"
+          }
+        },
+        "options": {}
+      },
+      "id": "node-ig-gsheets",
+      "name": "Save IG Leads to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Hashtag Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hashtag Generator": {
+      "main": [
+        [
+          {
+            "node": "Call Apify Instagram Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Apify Instagram Scraper": {
+      "main": [
+        [
+          {
+            "node": "Comment & Intent Analyzer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comment & Intent Analyzer": {
+      "main": [
+        [
+          {
+            "node": "Instagram AI Validator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram AI Validator": {
+      "main": [
+        [
+          {
+            "node": "Save IG Leads to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "Hajj-Umrah"
+    },
+    {
+      "name": "Instagram"
+    },
+    {
+      "name": "Deep-Mining"
+    }
+  ],
+  "versionId": "v1.0-ig-deep"
+}

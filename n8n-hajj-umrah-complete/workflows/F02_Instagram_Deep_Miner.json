@@ -1,0 +1,182 @@
+{
+  "name": "F2_Instagram_Deep_Miner",
+  "nodes": [
+    {
+      "parameters": {
+        "cronExpression": "0 */6 * * *",
+        "options": {}
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "hashtags",
+              "value": "#عمرة_البدل,#حج_عن_متوفي,#نيابة_عمرة,#UmrahProxy,#HajjForDeceased,#رمضان_قادم,#أشتاق_للبيت,#مكة_المكرمة,#المدينة_المنورة,#تسجيل_حج,#عمرة_ميسرة,#صدقة_جارية,#بر_الوالدين,#حج_البدل,#عمرة_الوالدين,#نيابة_شرعية,#فريضة_الحج,#عمرة_المريض,#عاجز_عن_الحج,#ثواب_العمرة"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "hashtag-list",
+      "name": "Hashtag List",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/apify~instagram-scraper/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "hashtag",
+              "value": "={{ $json.hashtag }}"
+            },
+            {
+              "name": "resultsLimit",
+              "value": "100"
+            },
+            {
+              "name": "includeComments",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "apify-instagram",
+      "name": "Apify Instagram Deep",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Analyze Instagram posts and comments for Hajj/Umrah proxy intent. Look for emotional indicators: grief, illness, disability, religious duty. Score 1-100 based on urgency and authenticity. Output JSON: { \"post_id\": string, \"author\": string, \"intent_score\": number, \"emotion\": \"grief\"|\"hope\"|\"duty\"|\"confusion\", \"category\": \"deceased\"|\"sick\"|\"disabled\", \"language\": string, \"action_required\": boolean }."
+            },
+            {
+              "role": "user",
+              "content": "Post: {{ $json.caption }}\nComments: {{ $json.comments }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ai-deep-analysis",
+      "name": "AI Deep Analysis",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const items = $input.all();\nconst highPriority = items.filter(item => item.json.intent_score >= 70);\nreturn highPriority;"
+      },
+      "id": "filter-high-score",
+      "name": "Filter High Score",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "YOUR_GOOGLE_SHEET_ID",
+        "range": "DeepLeads!A:H",
+        "options": {}
+      },
+      "id": "save-deep-leads",
+      "name": "Save Deep Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 3,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Hashtag List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hashtag List": {
+      "main": [
+        [
+          {
+            "node": "Apify Instagram Deep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apify Instagram Deep": {
+      "main": [
+        [
+          {
+            "node": "AI Deep Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Deep Analysis": {
+      "main": [
+        [
+          {
+            "node": "Filter High Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter High Score": {
+      "main": [
+        [
+          {
+            "node": "Save Deep Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["Hajj", "Umrah", "Instagram", "F2"],
+  "triggerCount": 1
+}

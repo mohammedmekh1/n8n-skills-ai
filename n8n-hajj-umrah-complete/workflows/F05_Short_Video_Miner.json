@@ -1,0 +1,222 @@
+{
+  "name": "F5_Short_Video_Miner",
+  "nodes": [
+    {
+      "parameters": {
+        "cronExpression": "0 */4 * * *",
+        "options": {}
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/apify~tiktok-scraper/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "hashtag",
+              "value": "hajjproxy"
+            },
+            {
+              "name": "resultsLimit",
+              "value": "50"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "tiktok-scraper",
+      "name": "TikTok Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/apify~instagram-reels-scraper/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "hashtag",
+              "value": "عمرة_البدل"
+            },
+            {
+              "name": "resultsLimit",
+              "value": "50"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "reels-scraper",
+      "name": "Instagram Reels Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 450]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Analyze video captions and comments from TikTok/Reels for Hajj/Umrah proxy intent. Detect emotional states: grief, longing, religious duty, family loss. Score urgency 1-100. Output JSON: { \"video_id\": string, \"platform\": \"tiktok\"|\"instagram\", \"author\": string, \"intent_score\": number, \"emotion\": \"grief\"|\"longing\"|\"duty\"|\"curiosity\", \"category\": \"deceased\"|\"sick\"|\"disabled\"|\"general\", \"top_comments\": array, \"action_required\": boolean }"
+            },
+            {
+              "role": "user",
+              "content": "Caption: {{ $json.caption }}\nComments: {{ JSON.stringify($json.comments) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ai-video-analysis",
+      "name": "AI Video Analysis",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [650, 375]
+    },
+    {
+      "parameters": {
+        "functionCode": "const items = $input.all();\nconst highPriority = items.filter(item => item.json.intent_score >= 65);\nreturn highPriority;"
+      },
+      "id": "filter-leads",
+      "name": "Filter High Priority",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 375]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "YOUR_GOOGLE_SHEET_ID",
+        "range": "VideoLeads!A:G",
+        "options": {}
+      },
+      "id": "save-video-leads",
+      "name": "Save Video Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 3,
+      "position": [1050, 375]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{TELEGRAM_BOT_TOKEN}}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"chat_id\": \"{{TELEGRAM_CHAT_ID}}\",\n  \"text\": \"🎥 Video Lead Found!\\nPlatform: {{ $json.platform }}\\nScore: {{ $json.intent_score }}\\nEmotion: {{ $json.emotion }}\\nAuthor: {{ $json.author }}\"\n}",
+        "options": {}
+      },
+      "id": "notify-video-lead",
+      "name": "Notify Video Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1250, 375]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "TikTok Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TikTok Scraper": {
+      "main": [
+        [
+          {
+            "node": "AI Video Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram Reels Scraper": {
+      "main": [
+        [
+          {
+            "node": "AI Video Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Video Analysis": {
+      "main": [
+        [
+          {
+            "node": "Filter High Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter High Priority": {
+      "main": [
+        [
+          {
+            "node": "Save Video Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Video Leads": {
+      "main": [
+        [
+          {
+            "node": "Notify Video Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["Hajj", "Umrah", "Video", "TikTok", "Reels", "F5"],
+  "triggerCount": 1
+}

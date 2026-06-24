@@ -1,0 +1,205 @@
+{
+  "name": "F4_Document_Verifier",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "document-upload",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "upload-webhook",
+      "name": "Document Upload Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-4o-mini"
+            },
+            {
+              "name": "messages",
+              "value": "=[\n  {\n    \"role\": \"system\",\n    \"content\": \"You are a document verification assistant for Hajj/Umrah proxy services. Analyze the uploaded document (death certificate, medical report, ID). Extract: deceased/patient name, date of death/illness, relationship to applicant, validity indicators. Output JSON: { \\\"document_type\\\": string, \\\"is_valid\\\": boolean, \\\"extracted_data\\\": object, \\\"confidence_score\\\": number, \\\"issues\\\": array }\"\n  },\n  {\n    \"role\": \"user\",\n    \"content\": \"Document content: {{ $json.document_text }}\"\n  }\n]"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ocr-analysis",
+      "name": "OCR & AI Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const doc = $input.first().json;\nconst isValid = doc.extracted_data && doc.confidence_score > 0.7;\nconst requiresManualReview = doc.confidence_score < 0.9 || doc.issues.length > 0;\n\nreturn {\n  verified: isValid,\n  autoApprove: isValid && !requiresManualReview,\n  needsReview: requiresManualReview,\n  data: doc.extracted_data,\n  issues: doc.issues,\n  confidence: doc.confidence_score\n};"
+      },
+      "id": "verification-logic",
+      "name": "Verification Logic",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.autoApprove }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-auto-approve",
+      "name": "If Auto Approve",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{TELEGRAM_BOT_TOKEN}}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"chat_id\": \"{{TELEGRAM_CHAT_ID}}\",\n  \"text\": \"✅ Document VERIFIED automatically\\nType: {{ $json.data.document_type }}\\nConfidence: {{ $json.confidence }}%\"\n}",
+        "options": {}
+      },
+      "id": "notify-approved",
+      "name": "Notify Approved",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{TELEGRAM_BOT_TOKEN}}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"chat_id\": \"{{TELEGRAM_CHAT_ID}}\",\n  \"text\": \"⚠️ Document NEEDS MANUAL REVIEW\\nIssues: {{ JSON.stringify($json.issues) }}\\nConfidence: {{ $json.confidence }}%\"\n}",
+        "options": {}
+      },
+      "id": "notify-review",
+      "name": "Notify Review Needed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "YOUR_GOOGLE_SHEET_ID",
+        "range": "Documents!A:F",
+        "options": {}
+      },
+      "id": "log-document",
+      "name": "Log Document",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 3,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Document Upload Webhook": {
+      "main": [
+        [
+          {
+            "node": "OCR & AI Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR & AI Analysis": {
+      "main": [
+        [
+          {
+            "node": "Verification Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verification Logic": {
+      "main": [
+        [
+          {
+            "node": "If Auto Approve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Auto Approve": {
+      "main": [
+        [
+          {
+            "node": "Notify Approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Review Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Approved": {
+      "main": [
+        [
+          {
+            "node": "Log Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Review Needed": {
+      "main": [
+        [
+          {
+            "node": "Log Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["Hajj", "Umrah", "Documents", "Verification", "F4"],
+  "triggerCount": 1
+}

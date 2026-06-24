@@ -1,0 +1,221 @@
+{
+  "name": "HajjUmrah F1: Global Smart Radar v3.0",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "radar-global-scan",
+        "options": {}
+      },
+      "id": "trigger-radar",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "notes": "نقطة البداية: تستقبل إشارات المسح من Apify أو جدولة زمنية"
+    },
+    {
+      "parameters": {
+        "jsCode": "// مهارة: data-processing & javascript-coding\n// تنظيف وتوحيد البيانات الواردة من منصات متعددة\nconst items = $input.all();\nconst cleanedData = [];\n\nfor (const item of items) {\n  const raw = item.json;\n  \n  // توحيد الحقول\n  const clean = {\n    platform: raw.platform || 'unknown',\n    content_type: raw.type || 'post',\n    text_content: (raw.text || raw.caption || '').trim(),\n    author: raw.author || raw.username || 'anonymous',\n    author_id: raw.author_id || raw.id || '',\n    location: raw.location || raw.geo || '',\n    timestamp: raw.timestamp || new Date().toISOString(),\n    hashtags: Array.isArray(raw.hashtags) ? raw.hashtags : (raw.hashtags || '').split(',').map(t => t.trim()),\n    engagement: {\n      likes: parseInt(raw.likes) || 0,\n      comments: parseInt(raw.comments) || 0,\n      shares: parseInt(raw.shares) || 0\n    },\n    language: raw.language || 'auto-detect',\n    raw_url: raw.url || ''\n  };\n  \n  // فلترة أولية: استبعاد المحتوى غير ذي صلة تماماً\n  const keywords = ['عمرة', 'حج', 'بدل', 'نيابة', 'متوفي', 'مريض', 'umrah', 'hajj', 'proxy', 'deceased'];\n  const textLower = clean.text_content.toLowerCase();\n  \n  if (keywords.some(k => textLower.includes(k))) {\n    cleanedData.push(clean);\n  }\n}\n\nreturn cleanedData.map(d => ({ json: d }));"
+      },
+      "id": "node-clean-data",
+      "name": "Data Cleaning (Skill: data-processing)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "أنت وكيل ذكاء اصطناعي شرعي متخصص في خدمات الحج والعمرة بالإنابة (عمرة البدل).\nمهمتك: تحليل النصوص المستخرجة من وسائل التواصل الاجتماعي لتحديد ما إذا كانت تعبر عن حاجة حقيقية لخدمة نيابة عن متوفي، مريض، أو عاجز.\n\nمعايير التحليل:\n1. **نية الاستفسار**: هل يبحث المستخدم عن خدمة أم مجرد معلومات عامة؟\n2. **حالة المنوب عنه**: متوفي، مريض مزمن، عاجز كبير سن، أم قادر؟\n3. **العلاقة**: والد، والدة، جد، زوج، قريب؟ (الأولوية للوالدين)\n4. **الجدية**: هل هناك مؤشرات على استعداد للحجز؟\n5. **اللغة**: حدد اللغة واستخرج المعنى حتى لو كانت ركيكة.\n\nالمخرجات المطلوبة بصيغة JSON:\n{\n  \"is_potential_lead\": boolean,\n  \"lead_score\": number (0-100),\n  \"category\": \"deceased\" | \"patient\" | \"disabled\" | \"general_inquiry\" | \"irrelevant\",\n  \"relationship_guess\": \"parent\" | \"spouse\" | \"relative\" | \"unknown\",\n  \"urgency\": \"high\" | \"medium\" | \"low\",\n  \"detected_language\": \"ar\" | \"en\" | \"ur\" | \"id\" | \"other\",\n  \"reasoning\": \"شرح موجز للسبب\"\n}\n\nكن دقيقاً وحساساً للمشاعر الدينية. استبعد الإعلانات التجارية والحسابات الوهمية."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.text_content }}\n\nPlatform: {{ $json.platform }}\nHashtags: {{ $json.hashtags.join(', ') }}"
+            }
+          ]
+        },
+        "options": {
+          "responseFormat": "json_object"
+        }
+      },
+      "id": "node-ai-agent",
+      "name": "AI Legal Agent (Skill: ai-agent-design)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "notes": "يستخدم مهارة ai-agent-design لتحليل النوايا الشرعية وتصنيف العملاء"
+    },
+    {
+      "parameters": {
+        "jsCode": "// مهارة: javascript-coding & contract-first\n// دمج نتائج الذكاء الاصطناعي مع البيانات الأصلية وتطبيق نظام النقاط\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const original = item.json;\n  const aiAnalysis = item.json.ai_analysis || {}; // نفترض أن العقدة السابقة أضافت هذا الحقل\n  \n  if (!aiAnalysis.is_potential_lead) continue; // تجاهل غير المؤهلين\n  \n  let score = parseInt(aiAnalysis.lead_score) || 0;\n  \n  // تعزيز النقاط بناءً على المعايير الشرعية\n  if (aiAnalysis.relationship_guess === 'parent') score += 20;\n  if (aiAnalysis.category === 'deceased' && aiAnalysis.urgency === 'high') score += 15;\n  if (original.engagement.likes > 100) score += 5; // شعبية المنشور قد تدل على مصداقية\n  \n  // تحديد الأولوية\n  let priority = 'normal';\n  if (score >= 80) priority = 'critical';\n  else if (score >= 60) priority = 'high';\n  else if (score >= 40) priority = 'medium';\n  \n  results.push({\n    json: {\n      ...original,\n      analysis: aiAnalysis,\n      final_score: Math.min(score, 100),\n      priority: priority,\n      processed_at: new Date().toISOString(),\n      status: 'new_lead'\n    }\n  });\n}\n\n// ترتيب حسب النقاط تنازلياً\nreturn results.sort((a, b) => b.json.final_score - a.json.final_score);"
+      },
+      "id": "node-scoring",
+      "name": "Scoring & Prioritization",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "range": "Leads!A:Z",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "platform": "platform",
+            "author": "author",
+            "content": "text_content",
+            "category": "analysis.category",
+            "score": "final_score",
+            "priority": "priority",
+            "url": "raw_url",
+            "timestamp": "processed_at"
+          }
+        },
+        "options": {}
+      },
+      "id": "node-gsheets",
+      "name": "Save to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1050, 300],
+      "notes": "حفظ العملاء المحتملين في جدول Leads"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "🚨 **عميل محتمل عالي الأولوية!**\n\nالنوع: {{ $json.analysis.category }}\nالأولوية: {{ $json.priority }}\nالنقاط: {{ $json.final_score }}\nالمنصة: {{ $json.platform }}\nالكاتب: {{ $json.author }}\nالملخص: {{ $json.analysis.reasoning }}\n\nالرابط: {{ $json.raw_url }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "node-telegram-alert",
+      "name": "Telegram Alert (High Priority)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1050, 500],
+      "notes": "إشعار فوري للعملاء ذوي النقاط العالية (>70)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.final_score }}",
+              "operation": "largerEqual",
+              "value2": 70
+            }
+          ]
+        }
+      },
+      "id": "node-filter-priority",
+      "name": "Filter High Priority",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [950, 400]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Data Cleaning (Skill: data-processing)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data Cleaning (Skill: data-processing)": {
+      "main": [
+        [
+          {
+            "node": "AI Legal Agent (Skill: ai-agent-design)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Legal Agent (Skill: ai-agent-design)": {
+      "main": [
+        [
+          {
+            "node": "Scoring & Prioritization",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scoring & Prioritization": {
+      "main": [
+        [
+          {
+            "node": "Filter High Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter High Priority": {
+      "main": [
+        [
+          {
+            "node": "Telegram Alert (High Priority)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Alert (High Priority)": {
+      "main": [
+        [
+          {
+            "node": "Save to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "Hajj-Umrah"
+    },
+    {
+      "name": "Marketing"
+    },
+    {
+      "name": "AI-Agent"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "v3.0-global"
+}
