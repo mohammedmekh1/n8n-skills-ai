@@ -1,0 +1,329 @@
+{
+  "name": "HajjUmrah_M2_Facebook_Lead_Ads.json",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://graph.facebook.com/v18.0/{{FACEBOOK_AD_ACCOUNT_ID}}/leads",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "facebookGraphApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,name,email,phone,created_time,custom_field_service_interest,custom_field_budget,custom_field_urgency"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            },
+            {
+              "name": "since",
+              "value": "={{ $now.minus({minutes: 20}).toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "facebook-lead-fetch",
+      "name": "Facebook Lead Ads - Fetch Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [450, 300],
+      "credentials": {
+        "facebookGraphApi": {
+          "id": "",
+          "name": "Facebook Graph API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-in-batches",
+      "name": "Split In Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "lead_score",
+              "name": "lead_score",
+              "value": "={{ ($json.custom_field_budget === 'vip' ? 40 : $json.custom_field_budget === 'premium' ? 30 : $json.custom_field_budget === 'standard' ? 20 : 10) + ($json.custom_field_service_interest.includes('hajj') ? 20 : 10) + ($json.custom_field_urgency === 'urgent' ? 25 : 10) }}",
+              "type": "number"
+            },
+            {
+              "id": "priority",
+              "name": "priority",
+              "value": "={{ $json.lead_score >= 70 ? 'high' : $json.lead_score >= 40 ? 'medium' : 'low' }}",
+              "type": "string"
+            },
+            {
+              "id": "source",
+              "name": "source",
+              "value": "Facebook Ads",
+              "type": "string"
+            },
+            {
+              "id": "campaign_id",
+              "name": "campaign_id",
+              "value": "={{ $json.campaign_id || 'hajj_umrah_2025' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "process-lead",
+      "name": "Process Lead Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "marketing_leads"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {
+          "valueInputMode": "expression"
+        }
+      },
+      "id": "save-to-sheets",
+      "name": "Google Sheets - Save Lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1050, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{TELEGRAM_BOT_TOKEN}}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "{{TELEGRAM_CHAT_ID}}"
+            },
+            {
+              "name": "text",
+              "value": "📘 *عميل من Facebook Ads*\n\n📛 الاسم: {{ $json.name }}\n📞 الهاتف: {{ $json.phone }}\n✉️ البريد: {{ $json.email }}\n🎯 الخدمة: {{ $json.custom_field_service_interest }}\n💰 الميزانية: {{ $json.custom_field_budget }}\n⭐ النقاط: {{ $json.lead_score }}\n🔴 الأولوية: {{ $json.priority }}\n\n#فيسبوك #عميل_جديد"
+            },
+            {
+              "name": "parse_mode",
+              "value": "Markdown"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "telegram-notification",
+      "name": "Telegram - Notify Sales Team",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.whatsapp.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsappBusinessCloudApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $json.phone }}\",\n  \"type\": \"template\",\n  \"template\": {\n    \"name\": \"facebook_lead_welcome\",\n    \"language\": {\n      \"code\": \"ar\"\n    },\n    \"components\": [\n      {\n        \"type\": \"body\",\n        \"parameters\": [\n          {\n            \"type\": \"text\",\n            \"text\": \"{{ $json.name }}\"\n          },\n          {\n            \"type\": \"text\",\n            \"text\": \"{{ $json.custom_field_service_interest }}\"\n          }\n        ]\n      }\n    ]\n  }\n}",
+        "options": {}
+      },
+      "id": "whatsapp-followup",
+      "name": "WhatsApp - Send Welcome",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1450, 300],
+      "credentials": {
+        "whatsappBusinessCloudApi": {
+          "id": "",
+          "name": "WhatsApp Business Cloud API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "https://graph.facebook.com/v18.0/{{ $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "facebookGraphApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"custom_field_status\": \"contacted\",\n  \"custom_field_contacted_date\": \"{{ $now.toISO() }}\",\n  \"custom_field_priority\": \"{{ $json.priority }}\"\n}",
+        "options": {}
+      },
+      "id": "update-facebook-lead",
+      "name": "Facebook - Update Lead Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1650, 300],
+      "credentials": {
+        "facebookGraphApi": {
+          "id": "",
+          "name": "Facebook Graph API"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Facebook Lead Ads - Fetch Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Facebook Lead Ads - Fetch Leads": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split In Batches": {
+      "main": [
+        [
+          {
+            "node": "Process Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Save Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Save Lead": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Notify Sales Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Notify Sales Team": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp - Send Welcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp - Send Welcome": {
+      "main": [
+        [
+          {
+            "node": "Facebook - Update Lead Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Facebook - Update Lead Status": {
+      "main": [
+        [
+          {
+            "node": "Split In Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "",
+  "meta": {
+    "instanceId": ""
+  },
+  "tags": [
+    {
+      "name": "Marketing",
+      "color": "blue"
+    },
+    {
+      "name": "Facebook Ads",
+      "color": "orange"
+    },
+    {
+      "name": "Hajj-Umrah",
+      "color": "purple"
+    }
+  ]
+}

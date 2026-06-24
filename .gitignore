@@ -1,4 +1,5 @@
-.mcp.json
-.DS_Store
-.claude/
-*-workspace/
+```
+# n8n workflow files are source/config files - not ignoring them
+# No build artifacts, dependencies, or temp files detected in changes
+# Keeping .gitignore empty as per rule #6
+```

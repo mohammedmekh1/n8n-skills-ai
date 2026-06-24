@@ -1,0 +1,132 @@
+{
+  "name": "F3_Legal_Negotiator_Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "legal-chat-webhook",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "chat-trigger",
+      "name": "Chat Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a Sharia-compliant legal negotiator for Hajj/Umrah proxy services. Your role:\n1. Answer questions about proxy rules (deceased, sick, disabled)\n2. Explain the process with empathy and religious accuracy\n3. Clarify pricing and packages transparently\n4. Handle objections with patience and wisdom\n5. NEVER make false promises or guarantee acceptance\n6. Always recommend consulting local scholars for complex cases\n7. Maintain respectful, compassionate tone\n\nKnowledge Base:\n- Proxy is valid for deceased, permanently ill, or physically unable\n- Must have intention (niyyah) from both parties\n- Parental proxy has highest priority\n- Payment is for service costs, not \"selling\" worship\n- All rituals must be performed correctly by qualified agents"
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.message }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "id": "ai-legal-agent",
+      "name": "AI Legal Agent",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const response = $input.first().json;\nconst reply = response.choices[0].message.content;\n\n// Detect if human escalation needed\nconst escalationKeywords = ['شكوى', 'مشكلة', 'محامي', 'قاضي', 'غش', 'احتيال'];\nconst needsEscalation = escalationKeywords.some(k => reply.toLowerCase().includes(k));\n\nreturn {\n  response: reply,\n  escalate: needsEscalation,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "escalation-check",
+      "name": "Escalation Check",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{TELEGRAM_BOT_TOKEN}}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"chat_id\": \"{{TELEGRAM_CHAT_ID}}\",\n  \"text\": \"🤖 AI Response: {{ $json.response }}\\n{{ $json.escalate ? '⚠️ ESCALATION NEEDED' : '' }}\"\n}",
+        "options": {}
+      },
+      "id": "send-response",
+      "name": "Send Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": "YOUR_GOOGLE_SHEET_ID",
+        "range": "ChatLogs!A:D",
+        "options": {}
+      },
+      "id": "log-chat",
+      "name": "Log Chat",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 3,
+      "position": [850, 450]
+    }
+  ],
+  "connections": {
+    "Chat Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Legal Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Legal Agent": {
+      "main": [
+        [
+          {
+            "node": "Escalation Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalation Check": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Response": {
+      "main": [
+        [
+          {
+            "node": "Log Chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["Hajj", "Umrah", "Legal", "AI", "F3"],
+  "triggerCount": 1
+}

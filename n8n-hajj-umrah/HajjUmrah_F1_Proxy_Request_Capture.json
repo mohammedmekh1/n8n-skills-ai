@@ -1,0 +1,450 @@
+{
+  "name": "HajjUmrah – F1 – استقبال طلبات الإنابة (حج/عمرة للمتوفي والمريض والعاجز)",
+  "nodes": [
+    {
+      "id": "hu-wh-001",
+      "name": "Webhook – Umrah Proxy Entry",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "path": "umrah-proxy-entry",
+        "responseMode": "lastNode",
+        "httpMethod": "POST",
+        "options": {}
+      },
+      "webhookId": "hu-umrah-entry-001"
+    },
+    {
+      "id": "hu-wh-002",
+      "name": "Webhook – Hajj Proxy Entry",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 200],
+      "parameters": {
+        "path": "hajj-proxy-entry",
+        "responseMode": "lastNode",
+        "httpMethod": "POST",
+        "options": {}
+      },
+      "webhookId": "hu-hajj-entry-001"
+    },
+    {
+      "id": "hu-code-001",
+      "name": "Code – Normalize Proxy Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 100],
+      "parameters": {
+        "jsCode": "\n// HajjUmrah – F1 – Proxy Request Normalizer\nconst raw = $input.first()?.json || {};\nconst d = raw.body || raw;\n\n// تحديد نوع الطلب\nconst requestType = d.request_type || 'umrah_deceased';\nconst isHajj = requestType.includes('hajj');\nconst category = requestType.split('_')[1]; // deceased, patient, disabled\n\n// استخراج بيانات مقدم الطلب\nconst requesterPhone = (d.requester_phone || d.phone || '').replace(/[^\\d+]/g,'');\nconst requesterName = d.requester_name || d.contact_name || 'مقدم الطلب';\nconst requesterRelation = d.requester_relation || '';\nconst requesterEmail = d.requester_email || d.email || '';\nconst requesterId = d.requester_id_number || d.national_id || '';\n\n// استخراج بيانات المتوفي/المريض/العاجز\nconst beneficiaryName = d.deceased_name || d.patient_name || d.beneficiary_name || '';\nconst beneficiaryNationality = d.deceased_nationality || d.patient_nationality || '';\nconst deathDate = d.deceased_death_date || '';\nconst medicalReport = d.medical_report_url || '';\n\n// تفضيلات النائب\nconst proxyPreference = d.proxy_preference || 'any';\nconst preferredDate = d.preferred_date || '';\nconst specialRequests = d.special_requests || d.notes || '';\n\n// توليد request_id فريد\nconst timestamp = Date.now().toString(36).toUpperCase();\nconst random = Math.random().toString(36).slice(2,5).toUpperCase();\nconst prefix = isHajj ? 'HJ' : 'UM';\nconst request_id = `${prefix}-${category.toUpperCase()}-${timestamp}-${random}`;\n\n// تحديد الأولوية حسب النوع\nlet priorityScore = 60;\nif (category === 'deceased') {\n  priorityScore = 85;\n} else if (category === 'patient') {\n  priorityScore = 80;\n} else if (category === 'disabled') {\n  priorityScore = 75;\n}\n\nreturn [{ json: {\n  request_id,\n  request_type: requestType,\n  is_hajj: isHajj,\n  category: category, // deceased, patient, disabled\n  \n  // بيانات مقدم الطلب\n  requester_name: requesterName,\n  requester_relation: requesterRelation,\n  requester_phone: requesterPhone.startsWith('+') ? requesterPhone : '+966' + requesterPhone.replace(/^0/,''),\n  requester_email: requesterEmail,\n  requester_id_number: requesterId,\n  \n  // بيانات المستفيد (المتوفي/المريض/العاجز)\n  beneficiary_name: beneficiaryName,\n  beneficiary_nationality: beneficiaryNationality,\n  death_date: deathDate,\n  medical_report_url: medicalReport,\n  \n  // تفضيلات الخدمة\n  proxy_preference: proxyPreference,\n  preferred_date: preferredDate,\n  special_requests: specialRequests,\n  \n  // مصدر الطلب\n  source: d.source || 'Website',\n  platform: d.platform || 'Website',\n  lead_id: d.lead_id || request_id,\n  \n  // حالة الطلب\n  status: 'new',\n  eligibility_status: 'pending',\n  docs_status: 'pending',\n  proxy_assigned: false,\n  \n  // نقاط الأولوية\n  priority_score: priorityScore,\n  \n  // معلومات النظام\n  created_at: new Date().toISOString(),\n  flow_origin: 'HajjUmrah_F1_Proxy_Request',\n  service_type: isHajj ? 'hajj_proxy' : 'umrah_proxy',\n}}];\n"
+      }
+    },
+    {
+      "id": "hu-code-002",
+      "name": "Code – Validate Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 100],
+      "parameters": {
+        "jsCode": "\n// HajjUmrah – F1 – Validate Proxy Request\nconst d = $input.first().json;\nconst errors = [];\n\n// التحقق من رقم الهاتف\nif (!d.requester_phone || d.requester_phone.length < 10) {\n  errors.push('رقم الهاتف مفقود أو غير صالح');\n}\n\n// التحقق من اسم مقدم الطلب\nif (!d.requester_name || d.requester_name.length < 2) {\n  errors.push('اسم مقدم الطلب مفقود');\n}\n\n// التحقق من هوية مقدم الطلب\nif (!d.requester_id_number || d.requester_id_number.length < 10) {\n  errors.push('رقم الهوية/الإقامة لمقدم الطلب مفقود');\n}\n\n// التحقق من اسم المستفيد\nif (!d.beneficiary_name || d.beneficiary_name.length < 2) {\n  errors.push('اسم المتوفي/المريض/العاجز مفقود');\n}\n\n// تحقق خاص بالمتوفي\nif (d.category === 'deceased' && !d.death_date) {\n  errors.push('تاريخ الوفاة مطلوب للطلبات نيابة عن متوفي');\n}\n\n// تحقق خاص بالمريض والعاجز\nif ((d.category === 'patient' || d.category === 'disabled') && !d.medical_report_url) {\n  // تحذير وليس خطأ Fatal\n  // errors.push('التقرير الطبي مفضل للمرضى والعاجزين');\n}\n\nconst valid = errors.length === 0;\nreturn [{ json: { ...d, is_valid: valid, validation_errors: errors.join(' | ') }}];\n"
+      }
+    },
+    {
+      "id": "hu-if-001",
+      "name": "IF – Valid Request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 100],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "hu-gs-check-001",
+      "name": "GSheets – Check Existing Request",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [880, 0],
+      "parameters": {
+        "operation": "getRows",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "proxy_requests",
+          "mode": "name"
+        },
+        "filterConditions": {
+          "conditions": [
+            {
+              "keyColumn": "requester_phone",
+              "condition": "equal",
+              "value": "={{ $json.requester_phone }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "hu-if-002",
+      "name": "IF – Already Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $input.first()?.json?.length || 0 }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "greaterThan"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "hu-tg-duplicate",
+      "name": "Telegram – Duplicate Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1320, 100],
+      "parameters": {
+        "chatId": "=YOUR_CHAT_ID",
+        "text": "=⚠️ <b>طلب مكرر محتمل</b>\\n🆔 {{ $json.request_id }}\\n📞 {{ $json.requester_phone }}\\n👤 {{ $json.requester_name }}\\n🕋 {{ $json.request_type }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "disable_web_page_preview": true
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIALS",
+          "name": "Telegram account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "hu-gs-save-001",
+      "name": "GSheets – Save Proxy Request",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1320, -100],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "proxy_requests",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "request_id": "={{ $json.request_id }}",
+            "request_type": "={{ $json.request_type }}",
+            "is_hajj": "={{ $json.is_hajj }}",
+            "category": "={{ $json.category }}",
+            "requester_name": "={{ $json.requester_name }}",
+            "requester_relation": "={{ $json.requester_relation || '' }}",
+            "requester_phone": "={{ $json.requester_phone }}",
+            "requester_email": "={{ $json.requester_email || '' }}",
+            "requester_id_number": "={{ $json.requester_id_number }}",
+            "beneficiary_name": "={{ $json.beneficiary_name }}",
+            "beneficiary_nationality": "={{ $json.beneficiary_nationality || '' }}",
+            "death_date": "={{ $json.death_date || '' }}",
+            "medical_report_url": "={{ $json.medical_report_url || '' }}",
+            "proxy_preference": "={{ $json.proxy_preference }}",
+            "preferred_date": "={{ $json.preferred_date || '' }}",
+            "special_requests": "={{ $json.special_requests || '' }}",
+            "source": "={{ $json.source }}",
+            "platform": "={{ $json.platform }}",
+            "status": "={{ $json.status }}",
+            "eligibility_status": "={{ $json.eligibility_status }}",
+            "docs_status": "={{ $json.docs_status }}",
+            "priority_score": "={{ $json.priority_score }}",
+            "validation_errors": "={{ $json.validation_errors || '' }}",
+            "created_at": "={{ $now }}",
+            "flow_origin": "={{ $json.flow_origin }}"
+          }
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "hu-tg-new-001",
+      "name": "Telegram – New Request Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1540, -100],
+      "parameters": {
+        "chatId": "=YOUR_CHAT_ID",
+        "text": "=✅ <b>طلب إنابة جديد</b>\\n🆔 {{ $json.request_id }}\\n🕋 {{ $json.request_type === 'umrah_deceased' ? 'عمرة عن متوفي' : $json.request_type === 'umrah_patient' ? 'عمرة عن مريض' : $json.request_type === 'umrah_disabled' ? 'عمرة عن عاجز' : $json.request_type === 'hajj_deceased' ? 'حج عن متوفي' : $json.request_type === 'hajj_patient' ? 'حج عن مريض' : 'حج عن عاجز' }}\\n👤 {{ $json.requester_name }}\\n📞 {{ $json.requester_phone }}\\n⭐ الأولوية: {{ $json.priority_score }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "disable_web_page_preview": true
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIALS",
+          "name": "Telegram account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "hu-response-001",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1760, -100],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"تم استلام طلبك بنجاح\",\n  \"request_id\": \"{{ $json.request_id }}\",\n  \"status\": \"{{ $json.status }}\",\n  \"next_step\": \"سيتم مراجعة أهليتك الشرعية خلال 24 ساعة\",\n  \"tracking_url\": \"https://your-domain.sa/track/{{ $json.request_id }}\"\n}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "hu-tg-invalid",
+      "name": "Telegram – Invalid Request Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [880, 200],
+      "parameters": {
+        "chatId": "=YOUR_CHAT_ID",
+        "text": "=❌ <b>طلب غير مكتمل</b>\\n🆔 {{ $json.request_id }}\\n❌ {{ $json.validation_errors }}\\n📞 {{ $json.requester_phone }}",
+        "additionalFields": {
+          "parse_mode": "HTML",
+          "disable_web_page_preview": true
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIALS",
+          "name": "Telegram account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "hu-response-invalid",
+      "name": "Respond to Webhook – Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1100, 200],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": false,\n  \"message\": \"الطلب يحتوي على أخطاء\",\n  \"errors\": \"{{ $json.validation_errors }}\",\n  \"request_id\": \"{{ $json.request_id }}\"\n}",
+        "options": {
+          "responseCode": 400
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook – Umrah Proxy Entry": {
+      "main": [
+        [
+          {
+            "node": "Code – Normalize Proxy Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook – Hajj Proxy Entry": {
+      "main": [
+        [
+          {
+            "node": "Code – Normalize Proxy Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code – Normalize Proxy Request": {
+      "main": [
+        [
+          {
+            "node": "Code – Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code – Validate Request": {
+      "main": [
+        [
+          {
+            "node": "IF – Valid Request?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF – Valid Request?": {
+      "main": [
+        [
+          {
+            "node": "GSheets – Check Existing Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram – Invalid Request Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GSheets – Check Existing Request": {
+      "main": [
+        [
+          {
+            "node": "IF – Already Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF – Already Exists?": {
+      "main": [
+        [
+          {
+            "node": "GSheets – Save Proxy Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram – Duplicate Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram – Duplicate Alert": {
+      "main": [
+        [
+          {
+            "node": "GSheets – Save Proxy Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GSheets – Save Proxy Request": {
+      "main": [
+        [
+          {
+            "node": "Telegram – New Request Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram – New Request Alert": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram – Invalid Request Alert": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook – Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "hu-f1-v1",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "hajj-umrah-instance"
+  },
+  "tags": [
+    {
+      "name": "HajjUmrah",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "name": "Proxy",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "triggerCount": 2,
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "id": "HajjUmrah_F1_Proxy_Request_Capture"
+}
